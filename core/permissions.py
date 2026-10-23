@@ -1,4 +1,4 @@
-from rest_framework.permissions import BasePermission
+from rest_framework.permissions import SAFE_METHODS, BasePermission
 
 from accounts.models import User
 
@@ -25,3 +25,12 @@ class IsCashierOrManager(BasePermission):
             and user.is_authenticated
             and user.role in (User.Role.CASHIER, User.Role.MANAGER)
         )
+class CashierReadManagerWrite(BasePermission):
+    """Reading: cashier or manager. Changing anything: manager only."""
+
+    message = "Only managers can change this."
+
+    def has_permission(self, request, view):
+        if request.method in SAFE_METHODS:  # GET, HEAD, OPTIONS
+            return IsCashierOrManager().has_permission(request, view)
+        return IsManager().has_permission(request, view)    
