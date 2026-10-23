@@ -7,6 +7,7 @@ from django.db.models import F
 from accounts.models import User
 from catalog.models import Category, Product
 from inventory.models import StockMovement, Supplier
+from inventory.services import change_stock
 
 PASSWORD = "freshmart123"
 
@@ -108,12 +109,8 @@ class Command(BaseCommand):
         return manager
 
     def _receive(self, product, qty, supplier, user):
-        # Opening stock is a purchase movement, never a direct assignment.
-        # Day 2 replaces this with the change_stock() service.
-        StockMovement.objects.create(
-            product=product, change=qty, reason=StockMovement.Reason.PURCHASE,
-            supplier=supplier, created_by=user,
-        )
-        Product.objects.filter(pk=product.pk).update(
-            stock_quantity=F("stock_quantity") + qty
+        # Opening stock is a purchase movement made through the one allowed door.
+        change_stock(
+            product, qty, StockMovement.Reason.PURCHASE, user,
+            supplier=supplier, note="Opening stock",
         )

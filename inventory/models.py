@@ -37,6 +37,7 @@ class StockMovement(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
         related_name="stock_movements",
     )
+    note = models.CharField(max_length=255, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
