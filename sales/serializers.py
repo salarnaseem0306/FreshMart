@@ -25,7 +25,7 @@ class SaleSerializer(serializers.ModelSerializer):
         model = Sale
         fields = [
             "id", "cashier", "status", "payment_method",
-            "total", "created_at", "paid_at", "items",
+            "total", "created_at", "paid_at", "refunded_at","items",
         ]
 
 

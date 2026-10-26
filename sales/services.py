@@ -182,5 +182,6 @@ def refund_sale(sale_id, user):
         )
 
     sale.status = Sale.Status.REFUNDED
-    sale.save(update_fields=["status"])
+    sale.refunded_at = timezone.now()
+    sale.save(update_fields=["status", "refunded_at"])
     return sale
