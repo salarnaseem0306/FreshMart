@@ -31,8 +31,9 @@ INSTALLED_APPS = [
     "inventory",
     "sales",
     "core",
-    # "reports"
+    "reports",
     "django_filters",
+    "drf_spectacular",
 ]
 
 AUTH_USER_MODEL = "accounts.User"
@@ -105,10 +106,19 @@ REST_FRAMEWORK = {
     "DEFAULT_FILTER_BACKENDS": [
         "django_filters.rest_framework.DjangoFilterBackend",
         "rest_framework.filters.SearchFilter",
+           
     ],
+     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }
 
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
+}
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "FreshMart API",
+    "DESCRIPTION": "API documentation for FreshMart supermarket backend.",
+    "VERSION": "1.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
 }
