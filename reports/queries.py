@@ -10,6 +10,11 @@ from sales.models import Sale, SaleItem
 ZERO = Decimal("0.00")
 
 
+def money(value):
+    """Format monetary values as two-decimal strings."""
+    return format(value if value is not None else ZERO, ".2f")
+
+
 def daily_report(day):
     """Four queries, however many sales there are: the database does the adding."""
     paid = Sale.objects.filter(status=Sale.Status.PAID, paid_at__date=day)
@@ -32,12 +37,19 @@ def daily_report(day):
     return {
         "date": day.isoformat(),
         "sales_count": totals["count"],
-        "revenue": totals["revenue"] or ZERO,
+        "revenue": money(totals["revenue"]),
         "refunds_count": refunds["count"],
-        "refunds_total": refunds["total"] or ZERO,
-        "by_payment_method": list(by_method),
+        "refunds_total": money(refunds["total"]),
+        "by_payment_method": [
+       {
+        "payment_method": row["payment_method"],
+        "count": row["count"],
+        "revenue": money(row["revenue"]),
+        }
+    for row in by_method
+],
         "by_cashier": [
-            {"cashier": row["cashier__username"], "count": row["count"], "revenue": row["revenue"]}
+            {"cashier": row["cashier__username"], "count": row["count"], "revenue": money(row["revenue"])}
             for row in by_cashier
         ],
     }
@@ -57,7 +69,7 @@ def top_products(date_from, date_to, limit):
     def shape(rows):
         return [
             {"id": r["product_id"], "name": r["product__name"],
-             "units": r["units"], "revenue": r["revenue"]}
+             "units": r["units"], "revenue": money(r["revenue"])}
             for r in rows
         ]
 
