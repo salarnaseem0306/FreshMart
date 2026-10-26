@@ -1,3 +1,4 @@
+import logging
 from rest_framework import generics, mixins, status, viewsets
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
@@ -14,6 +15,8 @@ from .serializers import (
     SupplierSerializer,
 )
 from .services import InsufficientStock, change_stock
+
+logger = logging.getLogger(__name__)
 
 
 class SupplierViewSet(
@@ -37,16 +40,27 @@ class ReceiveStockView(APIView):
         serializer = ReceiveStockSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+        try:
+            movement = change_stock(
+                data["product"],
+                data["quantity"],
+                StockMovement.Reason.PURCHASE,
+                request.user,
+                supplier=data["supplier"],
+                note=data["note"],
+            )
+        except Exception:
+            logger.exception(
+                "Unexpected stock receiving error | user_id=%s | product_id=%s",
+                request.user.pk,
+                data["product"].pk,
+            )
+            raise
 
-        movement = change_stock(
-            data["product"],
-            data["quantity"],
-            StockMovement.Reason.PURCHASE,   # chosen by the server, not the client
-            request.user,                    # taken from the token, not the request body
-            supplier=data["supplier"],
-            note=data["note"],
+        return Response(
+            StockMovementSerializer(movement).data,
+            status=status.HTTP_201_CREATED,
         )
-        return Response(StockMovementSerializer(movement).data, status=status.HTTP_201_CREATED)
 
 
 class AdjustStockView(APIView):
@@ -67,9 +81,21 @@ class AdjustStockView(APIView):
                 request.user,
                 note=data["note"],
             )
+
         except InsufficientStock as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        return Response(StockMovementSerializer(movement).data, status=status.HTTP_201_CREATED)
+        except Exception:
+            logger.exception(
+                "Unexpected stock adjustment error | user_id=%s | product_id=%s",
+                request.user.pk,
+                data["product"].pk,
+            )
+            raise
+
+        return Response(
+            StockMovementSerializer(movement).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class MovementPagination(PageNumberPagination):

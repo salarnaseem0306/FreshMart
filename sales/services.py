@@ -1,5 +1,7 @@
 from decimal import Decimal
 
+import logging
+
 from django.db import transaction
 from django.db.models import Sum
 from django.shortcuts import get_object_or_404
@@ -10,6 +12,9 @@ from inventory.models import StockMovement
 from inventory.services import change_stock
 
 from .models import Sale, SaleItem
+
+
+logger = logging.getLogger(__name__)
 
 
 class SaleStateError(Exception):
@@ -141,6 +146,15 @@ def pay_sale(sale_id, payment_method, amount_received, user):
     sale.total = total
     sale.paid_at = timezone.now()
     sale.save(update_fields=["status", "payment_method", "total", "paid_at"])
+
+    transaction.on_commit(
+    lambda: logger.info(
+        "Sale payment successful | user_id=%s | sale_id=%s | amount=%s",
+        user.pk,
+        sale.pk,
+        total,
+      )
+    )
     return sale, change
 
 @transaction.atomic
@@ -184,4 +198,14 @@ def refund_sale(sale_id, user):
     sale.status = Sale.Status.REFUNDED
     sale.refunded_at = timezone.now()
     sale.save(update_fields=["status", "refunded_at"])
+
+    transaction.on_commit(
+    lambda: logger.info(
+        "Sale refund successful | user_id=%s | sale_id=%s | amount=%s",
+        user.pk,
+        sale.pk,
+        sale.total,
+    )
+    )
+
     return sale

@@ -1,3 +1,4 @@
+import logging
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -25,7 +26,7 @@ from .services import (
     remove_item,
     set_item_quantity,
 )
-
+logger = logging.getLogger(__name__)
 
 class SaleViewSet(
     mixins.ListModelMixin,
@@ -88,6 +89,7 @@ class SaleViewSet(
         serializer = PaySaleSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+
         try:
             _, change = pay_sale(
                 sale.pk, data["payment_method"], data.get("amount_received"), request.user
@@ -101,10 +103,18 @@ class SaleViewSet(
             )
         except PaymentError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception:
+            logger.exception(
+                "Unexpected payment error | user_id=%s | sale_id=%s",
+                request.user.pk,
+                sale.pk,
+            )
+            raise
 
         receipt = dict(self._receipt(sale.pk))
         receipt["change"] = str(change)
         return Response(receipt)
+
 
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):

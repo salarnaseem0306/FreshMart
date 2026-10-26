@@ -1,9 +1,13 @@
 from django.db import transaction
 from django.db.models import F
 
+import logging
+
 from catalog.models import Product
 
 from .models import StockMovement
+
+logger = logging.getLogger(__name__)
 
 
 class InsufficientStock(Exception):
@@ -50,4 +54,15 @@ def change_stock(product, change, reason, user, supplier=None, sale=None, note="
         note=note,
     )
     product.refresh_from_db(fields=["stock_quantity"])
+
+    transaction.on_commit(
+    lambda: logger.info(
+        "Stock adjusted | user_id=%s | product_id=%s | change=%s | reason=%s",
+        user.pk,
+        product.pk,
+        change,
+        reason,
+      )
+    )
+
     return movement
