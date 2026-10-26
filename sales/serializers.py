@@ -2,6 +2,8 @@ from rest_framework import serializers
 
 from catalog.models import Product
 
+from decimal import Decimal
+
 from .models import Sale, SaleItem
 
 
@@ -52,3 +54,15 @@ class AddItemSerializer(serializers.Serializer):
 
 class UpdateItemSerializer(serializers.Serializer):
     quantity = serializers.IntegerField(min_value=1)
+
+
+class PaySaleSerializer(serializers.Serializer):
+    payment_method = serializers.ChoiceField(choices=Sale.PaymentMethod.choices)
+    amount_received = serializers.DecimalField(
+        max_digits=10, decimal_places=2, min_value=Decimal("0"), required=False
+    )
+
+    def validate(self, attrs):
+        if attrs["payment_method"] == Sale.PaymentMethod.CASH and "amount_received" not in attrs:
+            raise serializers.ValidationError({"amount_received": "Required when paying cash."})
+        return attrs

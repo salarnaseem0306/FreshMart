@@ -2,6 +2,14 @@ from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from .serializers import (
+    AddItemSerializer, PaySaleSerializer, SaleSerializer, UpdateItemSerializer,
+)
+from .services import (
+    InsufficientStockForSale, PaymentError, SaleStateError,
+    add_item, pay_sale, remove_item, set_item_quantity,
+)
+
 from accounts.models import User
 from core.pagination import StandardPagination
 from core.permissions import IsCashierOrManager
@@ -61,3 +69,27 @@ class SaleViewSet(
         except SaleStateError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
         return Response(self._receipt(sale.pk))
+
+    @action(detail=True, methods=["post"])
+    def pay(self, request, pk=None):
+        sale = self.get_object()
+        serializer = PaySaleSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            _, change = pay_sale(
+                sale.pk, data["payment_method"], data.get("amount_received"), request.user
+            )
+        except SaleStateError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+        except InsufficientStockForSale as exc:
+            return Response(
+                {"detail": str(exc), "shortages": exc.shortages},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except PaymentError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        receipt = dict(self._receipt(sale.pk))
+        receipt["change"] = str(change)
+        return Response(receipt)    
