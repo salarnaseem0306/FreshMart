@@ -142,3 +142,45 @@ def pay_sale(sale_id, payment_method, amount_received, user):
     sale.paid_at = timezone.now()
     sale.save(update_fields=["status", "payment_method", "total", "paid_at"])
     return sale, change
+
+@transaction.atomic
+def cancel_sale(sale_id):
+    """Cancel an open sale. Nothing was reserved, so no stock moves."""
+    sale = _lock_open_sale(sale_id)  # 409 if it is not open any more
+    sale.status = Sale.Status.CANCELLED
+    sale.save(update_fields=["status"])
+    return sale
+
+
+@transaction.atomic
+def refund_sale(sale_id, user):
+    """Refund a paid sale in full: put every line's stock back, in one transaction."""
+    sale = Sale.objects.select_for_update().get(pk=sale_id)
+    if sale.status != Sale.Status.PAID:
+        raise SaleStateError(
+            f"Sale #{sale.pk} is {sale.status}; only a paid sale can be refunded."
+        )
+
+    items = list(sale.items.order_by("product_id"))
+
+    # Same lock order as pay_sale: product rows in id order.
+    products = {
+        p.pk: p
+        for p in Product.objects.select_for_update()
+        .filter(pk__in=[item.product_id for item in items])
+        .order_by("pk")
+    }
+
+    for item in items:
+        change_stock(
+            products[item.product_id],
+            item.quantity,                      # positive: stock comes back
+            StockMovement.Reason.REFUND,
+            user,
+            sale=sale,
+            note=f"Refund of sale #{sale.pk}",
+        )
+
+    sale.status = Sale.Status.REFUNDED
+    sale.save(update_fields=["status"])
+    return sale

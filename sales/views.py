@@ -2,22 +2,29 @@ from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from .serializers import (
-    AddItemSerializer, PaySaleSerializer, SaleSerializer, UpdateItemSerializer,
-)
-from .services import (
-    InsufficientStockForSale, PaymentError, SaleStateError,
-    add_item, pay_sale, remove_item, set_item_quantity,
-)
-
 from accounts.models import User
 from core.pagination import StandardPagination
-from core.permissions import IsCashierOrManager
+from core.permissions import IsCashierOrManager, IsManager
 
 from .filters import SaleFilter
 from .models import Sale
-from .serializers import AddItemSerializer, SaleSerializer, UpdateItemSerializer
-from .services import SaleStateError, add_item, remove_item, set_item_quantity
+from .serializers import (
+    AddItemSerializer,
+    PaySaleSerializer,
+    SaleSerializer,
+    UpdateItemSerializer,
+)
+from .services import (
+    InsufficientStockForSale,
+    PaymentError,
+    SaleStateError,
+    add_item,
+    cancel_sale,
+    pay_sale,
+    refund_sale,
+    remove_item,
+    set_item_quantity,
+)
 
 
 class SaleViewSet(
@@ -29,6 +36,11 @@ class SaleViewSet(
     permission_classes = [IsCashierOrManager]
     filterset_class = SaleFilter
     pagination_class = StandardPagination
+
+    def get_permissions(self):
+        if self.action == "refund":
+            return [IsManager()]
+        return super().get_permissions()
 
     def get_queryset(self):
         queryset = Sale.objects.select_related("cashier").prefetch_related("items__product")
@@ -92,4 +104,22 @@ class SaleViewSet(
 
         receipt = dict(self._receipt(sale.pk))
         receipt["change"] = str(change)
-        return Response(receipt)    
+        return Response(receipt)
+
+    @action(detail=True, methods=["post"])
+    def cancel(self, request, pk=None):
+        sale = self.get_object()
+        try:
+            cancel_sale(sale.pk)
+        except SaleStateError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+        return Response(self._receipt(sale.pk))
+
+    @action(detail=True, methods=["post"])
+    def refund(self, request, pk=None):
+        sale = self.get_object()
+        try:
+            refund_sale(sale.pk, request.user)
+        except SaleStateError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+        return Response(self._receipt(sale.pk))
