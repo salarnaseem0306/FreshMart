@@ -18,6 +18,7 @@ class StockMovement(models.Model):
     class Reason(models.TextChoices):
         PURCHASE = "purchase", "Purchase"
         SALE = "sale", "Sale"
+        REFUND = "refund", "Refund"
         ADJUSTMENT = "adjustment", "Adjustment"
 
     product = models.ForeignKey(
