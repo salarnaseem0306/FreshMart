@@ -1,9 +1,9 @@
 from decimal import Decimal
+from datetime import timedelta
 
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
-
 from accounts.models import User
 from catalog.models import Category, Product
 from inventory.models import StockMovement, Supplier
@@ -53,27 +53,30 @@ class ReportTests(TestCase):
             response = self.client.get("/api/reports/daily/", {"date": self.today})
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        # Only the two paid sales count: refunded, cancelled and open ones are left out.
-        self.assertEqual(data["sales_count"], 2)
-        self.assertEqual(data["revenue"], "16.00")
+        
+        # Three sales were paid today (one was refunded later the same day); cancelled and open are out.
+        self.assertEqual(data["sales_count"], 3)
+        self.assertEqual(data["revenue"], "18.00")
         self.assertEqual(data["refunds_count"], 1)
         self.assertEqual(data["refunds_total"], "2.00")
+        self.assertEqual(data["net_revenue"], "16.00")
         methods = {row["payment_method"]: row for row in data["by_payment_method"]}
         self.assertEqual(methods["cash"]["revenue"], "6.00")
-        self.assertEqual(methods["card"]["revenue"], "10.00")
+        self.assertEqual(methods["card"]["revenue"], "12.00")
         self.assertEqual([r["cashier"] for r in data["by_cashier"]], ["cash2", "cash1"])
-        self.assertEqual(data["by_cashier"][1]["revenue"], "6.00")
+        self.assertEqual(data["by_cashier"][1]["revenue"], "8.00")
 
     def test_daily_report_defaults_to_today(self):
         data = self.client.get("/api/reports/daily/").json()
         self.assertEqual(data["date"], self.today)
-        self.assertEqual(data["sales_count"], 2)
+        self.assertEqual(data["sales_count"], 3)
 
     def test_daily_report_for_an_empty_day_has_zeros_and_same_query_count(self):
         with self.assertNumQueries(4):
             data = self.client.get("/api/reports/daily/", {"date": "2000-01-01"}).json()
         self.assertEqual(data["sales_count"], 0)
         self.assertEqual(data["revenue"], "0.00")
+        self.assertEqual(data["net_revenue"], "0.00")
         self.assertEqual(data["by_payment_method"], [])
         self.assertEqual(data["by_cashier"], [])
 
@@ -113,3 +116,46 @@ class ReportTests(TestCase):
         change_stock(self.salt, 2, StockMovement.Reason.PURCHASE, self.manager, supplier=newer)
         rows = self.client.get("/api/reports/low-stock/").json()
         self.assertEqual(rows[0]["last_supplier"]["name"], "Beta Supply")
+
+class RefundOnALaterDayTests(TestCase):
+    """A refund today must not change the numbers of the day the sale was paid."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.manager = User.objects.create_user("mgr2", password="pw", role=User.Role.MANAGER)
+        cls.cashier = User.objects.create_user("cash", password="pw", role=User.Role.CASHIER)
+        category = Category.objects.create(name="Test2")
+        cls.product = Product.objects.create(
+            name="Milk", sku="M-1", category=category, price=Decimal("5.00")
+        )
+        change_stock(cls.product, 10, StockMovement.Reason.PURCHASE, cls.manager)
+
+    def test_refund_today_does_not_rewrite_yesterday(self):
+        client = APIClient()
+        client.force_authenticate(self.manager)
+        today = timezone.localdate()
+        yesterday = today - timedelta(days=1)
+
+        sale = Sale.objects.create(cashier=self.cashier)
+        add_item(sale.pk, self.product, 1)
+        pay_sale(sale.pk, Sale.PaymentMethod.CARD, None, self.cashier)
+        # Pretend the sale was paid yesterday.
+        Sale.objects.filter(pk=sale.pk).update(paid_at=timezone.now() - timedelta(days=1))
+
+        before = client.get("/api/reports/daily/", {"date": yesterday.isoformat()}).json()
+        refund_sale(sale.pk, self.manager)  # the refund happens today
+        after = client.get("/api/reports/daily/", {"date": yesterday.isoformat()}).json()
+        today_report = client.get("/api/reports/daily/", {"date": today.isoformat()}).json()
+
+        # Yesterday is history: it must be identical before and after the refund.
+        self.assertEqual(after, before)
+        self.assertEqual(after["sales_count"], 1)
+        self.assertEqual(after["revenue"], "5.00")
+        self.assertEqual(after["refunds_count"], 0)
+        self.assertEqual(after["net_revenue"], "5.00")
+        # Today carries the refund, and only the refund.
+        self.assertEqual(today_report["sales_count"], 0)
+        self.assertEqual(today_report["revenue"], "0.00")
+        self.assertEqual(today_report["refunds_count"], 1)
+        self.assertEqual(today_report["refunds_total"], "5.00")
+        self.assertEqual(today_report["net_revenue"], "-5.00")

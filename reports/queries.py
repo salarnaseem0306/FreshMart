@@ -8,15 +8,21 @@ from sales.models import Sale, SaleItem
 
 ZERO = Decimal("0.00")
 
-
 def money(value):
-    """Format monetary values as two-decimal strings."""
-    return format(value if value is not None else ZERO, ".2f")
+    """Money leaves the API as a string with 2 decimals ("18.00"), never as a float."""
+    return str((value or ZERO).quantize(Decimal("0.01")))
 
 
 def daily_report(day):
-    """Four queries, however many sales there are: the database does the adding."""
-    paid = Sale.objects.filter(status=Sale.Status.PAID, paid_at__date=day)
+    """Four queries, however many sales there are: the database does the adding.
+
+    Revenue is history: every sale PAID on this day counts, whatever its status is now.
+    A later refund is subtracted on the day it happens (refunds_total / net_revenue),
+    so a report that was already printed for an earlier day never changes.
+    """
+    paid = Sale.objects.filter(
+        status__in=[Sale.Status.PAID, Sale.Status.REFUNDED], paid_at__date=day
+    )
 
     totals = paid.aggregate(count=Count("id"), revenue=Sum("total"))               # query 1
     refunds = Sale.objects.filter(refunded_at__date=day).aggregate(                # query 2
@@ -33,22 +39,30 @@ def daily_report(day):
         .order_by("-revenue", "cashier_id")
     )
 
+    revenue = totals["revenue"] or ZERO
+    refunds_total = refunds["total"] or ZERO
+
     return {
         "date": day.isoformat(),
         "sales_count": totals["count"],
-        "revenue": money(totals["revenue"]),
+        "revenue": money(revenue),
         "refunds_count": refunds["count"],
-        "refunds_total": money(refunds["total"]),
+        "refunds_total": money(refunds_total),
+        "net_revenue": money(revenue - refunds_total),
         "by_payment_method": [
-       {
-        "payment_method": row["payment_method"],
-        "count": row["count"],
-        "revenue": money(row["revenue"]),
-        }
-    for row in by_method
-],
+            {
+                "payment_method": row["payment_method"],
+                "count": row["count"],
+                "revenue": money(row["revenue"]),
+            }
+            for row in by_method
+        ],
         "by_cashier": [
-            {"cashier": row["cashier__username"], "count": row["count"], "revenue": money(row["revenue"])}
+            {
+                "cashier": row["cashier__username"],
+                "count": row["count"],
+                "revenue": money(row["revenue"]),
+            }
             for row in by_cashier
         ],
     }
