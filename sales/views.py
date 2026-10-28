@@ -8,6 +8,7 @@ from core.pagination import StandardPagination
 from core.permissions import IsCashierOrManager, IsManager
 
 from .filters import SaleFilter
+
 from .models import Sale
 from .serializers import (
     AddItemSerializer,
@@ -23,6 +24,7 @@ from .services import (
     cancel_sale,
     pay_sale,
     refund_sale,
+    LimitExceeded,
     remove_item,
     set_item_quantity,
 )
@@ -65,6 +67,8 @@ class SaleViewSet(
         try:
             add_item(sale.pk, serializer.validated_data["product"],
                      serializer.validated_data["quantity"])
+        except LimitExceeded as exc:
+            return Response({"quantity": [str(exc)]}, status=status.HTTP_400_BAD_REQUEST)
         except SaleStateError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
         return Response(self._receipt(sale.pk), status=status.HTTP_201_CREATED)
@@ -81,6 +85,8 @@ class SaleViewSet(
                 remove_item(sale.pk, int(item_id))
         except SaleStateError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+        except LimitExceeded as exc:
+            return Response({"quantity": [str(exc)]}, status=status.HTTP_400_BAD_REQUEST)
         return Response(self._receipt(sale.pk))
 
     @action(detail=True, methods=["post"])

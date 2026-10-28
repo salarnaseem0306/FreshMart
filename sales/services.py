@@ -31,6 +31,38 @@ class InsufficientStockForSale(Exception):
         self.shortages = shortages
         super().__init__("Not enough stock for some items.")
 
+MAX_LINE_QUANTITY = 999
+MAX_MONEY = Decimal("99999999.99")
+
+
+class LimitExceeded(Exception):
+    """A number is too big to accept or store (API answers 400 with a field error)."""
+
+
+    def _checked_line(unit_price, quantity):
+     """Return the line total, or raise LimitExceeded if this line would be too big."""
+     if quantity > MAX_LINE_QUANTITY:
+         raise LimitExceeded(
+            f"At most {MAX_LINE_QUANTITY} units of one product per line "
+            f"(this line would have {quantity})."
+        )
+         
+     line_total = unit_price * quantity
+     if line_total > MAX_MONEY:
+        raise LimitExceeded("The total of this line is too large. Lower the quantity.")
+     return line_total 
+
+def _checked_line(unit_price, quantity):
+    if quantity > MAX_LINE_QUANTITY:
+        raise LimitExceeded(
+            f"At most {MAX_LINE_QUANTITY} units of one product per line "
+            f"(this line would have {quantity})."
+        )
+    line_total = unit_price * quantity
+    if line_total > MAX_MONEY:
+        raise LimitExceeded("The total of this line is too large. Lower the quantity.")
+    return line_total           
+
 
 def _lock_open_sale(sale_id):
     """Lock the sale row, then make sure it is still open."""
@@ -43,6 +75,10 @@ def _lock_open_sale(sale_id):
 def recalculate_total(sale):
     """The total always comes from the lines, never from the client."""
     total = sale.items.aggregate(t=Sum("line_total"))["t"] or Decimal("0.00")
+    if total > MAX_MONEY:
+        raise LimitExceeded(
+            "The total of this sale would be too large. Remove an item or lower a quantity."
+        )
     sale.total = total
     sale.save(update_fields=["total"])
 
@@ -52,9 +88,10 @@ def add_item(sale_id, product, quantity):
     sale = _lock_open_sale(sale_id)
     item = SaleItem.objects.filter(sale=sale, product=product).first()
     if item:
-        # Same product again: raise the quantity of the existing line.
-        item.quantity += quantity
-        item.line_total = item.unit_price * item.quantity
+        # Same product again: raise the quantity of the existing line (limit applies to the sum).
+        new_quantity = item.quantity + quantity
+        item.line_total = _checked_line(item.unit_price, new_quantity)
+        item.quantity = new_quantity
         item.save(update_fields=["quantity", "line_total"])
     else:
         SaleItem.objects.create(
@@ -62,7 +99,7 @@ def add_item(sale_id, product, quantity):
             product=product,
             quantity=quantity,
             unit_price=product.price,           # (Rule 4)
-            line_total=product.price * quantity,
+            line_total=_checked_line(product.price, quantity),
         )
     recalculate_total(sale)
     return sale
@@ -72,8 +109,8 @@ def add_item(sale_id, product, quantity):
 def set_item_quantity(sale_id, item_id, quantity):
     sale = _lock_open_sale(sale_id)
     item = get_object_or_404(SaleItem, pk=item_id, sale=sale)
+    item.line_total = _checked_line(item.unit_price, quantity)
     item.quantity = quantity
-    item.line_total = item.unit_price * quantity
     item.save(update_fields=["quantity", "line_total"])
     recalculate_total(sale)
     return sale
