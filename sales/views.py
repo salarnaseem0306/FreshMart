@@ -37,6 +37,8 @@ class SaleViewSet(
     permission_classes = [IsCashierOrManager]
     filterset_class = SaleFilter
     pagination_class = StandardPagination
+    lookup_value_regex = r"[0-9]+"
+   
 
     def get_permissions(self):
         if self.action == "refund":
@@ -44,10 +46,15 @@ class SaleViewSet(
         return super().get_permissions()
 
     def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):
+            return Sale.objects.none()
+
         queryset = Sale.objects.select_related("cashier").prefetch_related("items__product")
+
         if self.request.user.role != User.Role.MANAGER:
             # A cashier only ever sees (and touches) their own sales.
             queryset = queryset.filter(cashier=self.request.user)
+
         return queryset
 
     def _receipt(self, pk):
