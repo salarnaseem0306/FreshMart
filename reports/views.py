@@ -1,4 +1,5 @@
 from datetime import timedelta
+from drf_spectacular.utils import extend_schema
 
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
@@ -8,11 +9,19 @@ from rest_framework.views import APIView
 from core.permissions import IsManager
 
 from .queries import daily_report, low_stock, top_products
-from .serializers import DailyQuerySerializer, TopProductsQuerySerializer
+from .serializers import (
+    DailyQuerySerializer,
+    DailyReportResponseSerializer,
+    LowStockItemSerializer,
+    TopProductsQuerySerializer,
+    TopProductsResponseSerializer,
+)
 
 
 class DailyReportView(APIView):
     permission_classes = [IsManager]
+
+    @extend_schema(responses=DailyReportResponseSerializer)
 
     def get(self, request):
         query = DailyQuerySerializer(data=request.query_params)
@@ -23,6 +32,7 @@ class DailyReportView(APIView):
 
 class TopProductsView(APIView):
     permission_classes = [IsManager]
+    @extend_schema(responses=TopProductsResponseSerializer)
 
     def get(self, request):
         params = request.query_params
@@ -44,6 +54,7 @@ class TopProductsView(APIView):
 
 class LowStockView(APIView):
     permission_classes = [IsManager]
+    @extend_schema(responses=LowStockItemSerializer(many=True))
 
     def get(self, request):
         return Response(low_stock())

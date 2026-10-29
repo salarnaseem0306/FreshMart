@@ -3,6 +3,8 @@ from rest_framework import generics, mixins, status, viewsets
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from drf_spectacular.utils import extend_schema
+
 from core.permissions import IsManager
 
 from rest_framework.pagination import PageNumberPagination
@@ -37,6 +39,11 @@ class ReceiveStockView(APIView):
 
     permission_classes = [IsManager]
 
+    @extend_schema(
+      request=ReceiveStockSerializer,
+      responses={201: StockMovementSerializer},
+    )
+
     def post(self, request):
         serializer = ReceiveStockSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -68,7 +75,13 @@ class AdjustStockView(APIView):
     """Correct stock after a count (breakage, theft, found items)."""
 
     permission_classes = [IsManager]
-
+    @extend_schema(
+     request=AdjustStockSerializer,
+     responses={
+        201: StockMovementSerializer,
+        400: None,
+    },
+    )
     def post(self, request):
         serializer = AdjustStockSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
