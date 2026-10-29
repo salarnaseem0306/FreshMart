@@ -48,6 +48,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Install requirements
+        run: pip install -r requirements-dev.txt    
+
       - name: Ruff check
         run: ruff check .
 
