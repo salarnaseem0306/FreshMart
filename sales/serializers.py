@@ -2,6 +2,8 @@ from rest_framework import serializers
 
 from catalog.models import Product
 
+from .services import MAX_LINE_QUANTITY
+
 from decimal import Decimal
 
 from .models import Sale, SaleItem
@@ -34,7 +36,7 @@ class AddItemSerializer(serializers.Serializer):
         queryset=Product.objects.filter(is_active=True), required=False
     )
     barcode = serializers.CharField(required=False)
-    quantity = serializers.IntegerField(min_value=1, default=1)
+    quantity = serializers.IntegerField(min_value=1, max_value=MAX_LINE_QUANTITY, default=1)
 
     def validate(self, attrs):
         has_product = "product" in attrs
@@ -53,7 +55,7 @@ class AddItemSerializer(serializers.Serializer):
 
 
 class UpdateItemSerializer(serializers.Serializer):
-    quantity = serializers.IntegerField(min_value=1)
+    quantity = serializers.IntegerField(min_value=1, max_value=MAX_LINE_QUANTITY)
 
 
 class PaySaleSerializer(serializers.Serializer):
