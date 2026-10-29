@@ -24,6 +24,7 @@ class CategoryViewSet(
 
 class ProductViewSet(
     mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
     mixins.CreateModelMixin,
     mixins.UpdateModelMixin,
     mixins.DestroyModelMixin,
@@ -38,6 +39,8 @@ class ProductViewSet(
     def get_queryset(self):
         queryset = Product.objects.select_related("category")
         if self.action == "list":
+            # Lists only show active products. Fetching one product by id also works for
+            # an inactive one: old receipts and reports still point at it.
             queryset = queryset.filter(is_active=True)
         return queryset
 
