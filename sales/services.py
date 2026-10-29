@@ -134,7 +134,19 @@ def pay_sale(sale_id, payment_method, amount_received, user):
     if not items:
         raise PaymentError("Cannot pay an empty sale.")
 
-    # 1. Lock every product row, always in id order (prevents deadlocks).
+    # 1. The total comes from the lines. Cash must cover it. This needs no
+    #    product rows, so check it BEFORE locking anything or touching stock.
+    total = sum((item.line_total for item in items), Decimal("0.00"))
+    change = Decimal("0.00")
+    if payment_method == Sale.PaymentMethod.CASH:
+        if amount_received is None or amount_received < total:
+            shortfall = total - (amount_received or Decimal("0.00"))
+            raise PaymentError(
+                f"Amount received does not cover the total of {total}. Short by {shortfall}."
+            )
+        change = amount_received - total
+
+    # 2. Lock every product row, always in id order (prevents deadlocks).
     products = {
         p.pk: p
         for p in Product.objects.select_for_update()
@@ -142,7 +154,7 @@ def pay_sale(sale_id, payment_method, amount_received, user):
         .order_by("pk")
     }
 
-    # 2. Check ALL lines first, so the cashier hears about every short product at once.
+    # 3. Check ALL lines first, so the cashier hears about every short product at once.
     shortages = [
         {
             "product": item.product_id,
@@ -156,7 +168,7 @@ def pay_sale(sale_id, payment_method, amount_received, user):
     if shortages:
         raise InsufficientStockForSale(shortages)
 
-    # 3. Take the stock, through the one allowed door.
+    # 4. Take the stock, through the one allowed door.
     for item in items:
         change_stock(
             products[item.product_id],
@@ -166,17 +178,6 @@ def pay_sale(sale_id, payment_method, amount_received, user):
             sale=sale,
             note=f"Sale #{sale.pk}",
         )
-
-    # 4. The total comes from the lines. Cash must cover it.
-    total = sum((item.line_total for item in items), Decimal("0.00"))
-    change = Decimal("0.00")
-    if payment_method == Sale.PaymentMethod.CASH:
-        if amount_received is None or amount_received < total:
-            shortfall = total - (amount_received or Decimal("0.00"))
-            raise PaymentError(
-                f"Amount received does not cover the total of {total}. Short by {shortfall}."
-            )
-        change = amount_received - total
 
     sale.status = Sale.Status.PAID
     sale.payment_method = payment_method
